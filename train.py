@@ -75,25 +75,26 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------------------------------------------------------------------#
     pretrained      = False
     #------------------------------------------------------------------#
-    #   mosaic              马赛克数据增强。
-    #   mosaic_prob         每个step有多少概率使用mosaic数据增强，默认50%。
+    # mosaic mosaic data augmentation.
+    # mosaic_prob What is the probability of using mosaic data augmentation per STEP, default 50%.
     #
-    #   mixup               是否使用mixup数据增强，仅在mosaic=True时有效。
-    #                       只会对mosaic增强后的图片进行mixup的处理。
-    #   mixup_prob          有多少概率在mosaic后使用mixup数据增强，默认50%。
-    #                       总的mixup概率为mosaic_prob * mixup_prob。
+    # mixup Whether to use mixup data augmentation, valid only if mosaic=True.
+    # Only mixup will be applied to mosaic-enhanced images.
+    # mixup_prob What is the probability to use mixup data enhancement after mosaic, default 50%.
+    # The total mixup probability is mosaic_prob * mixup_prob.
     #
-    #   special_aug_ratio   参考YoloX，由于Mosaic生成的训练图片，远远脱离自然图片的真实分布。
-    #                       当mosaic=True时，本代码会在special_aug_ratio范围内开启mosaic。
-    #                       默认为前70%个epoch，100个世代会开启70个世代。
-    #------------------------------------------------------------------#
+    # special_aug_ratio Refer to YoloX, since Mosaic generates training images that are far from the true distribution of natural images.
+    # When mosaic=True, this code will turn on mosaic in the special_aug_ratio range.
+    # Defaults to the first 70% epochs, 100 generations will turn on 70 generations.
+    # ------------------------------------------------------------------#
+
     mosaic              = True
     mosaic_prob         = 0.5
     mixup               = True
     mixup_prob          = 0.5
     special_aug_ratio   = 0.7
     #------------------------------------------------------------------#
-    #   label_smoothing     标签平滑。一般0.01以下。如0.01、0.005。
+    # label_smoothing Label smoothing. Generally 0.01 or less. E.g. 0.01, 0.005.
     #------------------------------------------------------------------#
     label_smoothing     = 0
 
