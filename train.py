@@ -1,6 +1,3 @@
-#-------------------------------------#
-#       对数据集进行训练
-#-------------------------------------#
 import datetime
 import os
 from functools import partial
@@ -22,98 +19,60 @@ from utils.utils import (download_weights, get_classes, seed_everything,
                          show_config, worker_init_fn)
 from utils.utils_fit import fit_one_epoch
 
-'''
-训练自己的目标检测模型一定需要注意以下几点：
-1、训练前仔细检查自己的格式是否满足要求，该库要求数据集格式为VOC格式，需要准备好的内容有输入图片和标签
-   输入图片为.jpg图片，无需固定大小，传入训练前会自动进行resize。
-   灰度图会自动转成RGB图片进行训练，无需自己修改。
-   输入图片如果后缀非jpg，需要自己批量转成jpg后再开始训练。
+from utils.radar_camera_yolo_dataset import RadarCameraYoloDataset
 
-   标签为.xml格式，文件中会有需要检测的目标信息，标签文件和输入图片文件相对应。
 
-2、损失值的大小用于判断是否收敛，比较重要的是有收敛的趋势，即验证集损失不断下降，如果验证集损失基本上不改变的话，模型基本上就收敛了。
-   损失值的具体大小并没有什么意义，大和小只在于损失的计算方式，并不是接近于0才好。如果想要让损失好看点，可以直接到对应的损失函数里面除上10000。
-   训练过程中的损失值会保存在logs文件夹下的loss_%Y_%m_%d_%H_%M_%S文件夹中
-   
-3、训练好的权值文件保存在logs文件夹中，每个训练世代（Epoch）包含若干训练步长（Step），每个训练步长（Step）进行一次梯度下降。
-   如果只是训练了几个Step是不会保存的，Epoch和Step的概念要捋清楚一下。
-'''
 if __name__ == "__main__":
-    #---------------------------------#
-    #   Cuda    是否使用Cuda
-    #           没有GPU可以设置成False
-    #---------------------------------#
     Cuda            = True
-    #----------------------------------------------#
-    #   Seed    用于固定随机种子
-    #           使得每次独立训练都可以获得一样的结果
-    #----------------------------------------------#
     seed            = 11
-    #---------------------------------------------------------------------#
-    #   distributed     用于指定是否使用单机多卡分布式运行
-    #                   终端指令仅支持Ubuntu。CUDA_VISIBLE_DEVICES用于在Ubuntu下指定显卡。
-    #                   Windows系统下默认使用DP模式调用所有显卡，不支持DDP。
-    #   DP模式：
-    #       设置            distributed = False
-    #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1 python train.py
-    #   DDP模式：
-    #       设置            distributed = True
-    #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 train.py
-    #---------------------------------------------------------------------#
     distributed     = False
-    #---------------------------------------------------------------------#
-    #   sync_bn     是否使用sync_bn，DDP模式多卡可用
-    #---------------------------------------------------------------------#
     sync_bn         = False
     #---------------------------------------------------------------------#
-    #   fp16        是否使用混合精度训练
-    #               可减少约一半的显存、需要pytorch1.7.1以上
+    # whether to train with FP16 mixed precision
+    # FP16 reduces memory by about half, and requires Python 1.7.1 or later.
     #---------------------------------------------------------------------#
     fp16            = False
     #---------------------------------------------------------------------#
-    #   classes_path    指向model_data下的txt，与自己训练的数据集相关 
-    #                   训练前一定要修改classes_path，使其对应自己的数据集
+    # classes_path points to the txt under model_data that relates to your own training dataset. 
+    # Be sure to modify classes_path to match your dataset before training!
     #---------------------------------------------------------------------#
     classes_path    = 'model_data/voc_classes.txt'
     #----------------------------------------------------------------------------------------------------------------------------#
-    #   权值文件的下载请看README，可以通过网盘下载。模型的 预训练权重 对不同数据集是通用的，因为特征是通用的。
-    #   模型的 预训练权重 比较重要的部分是 主干特征提取网络的权值部分，用于进行特征提取。
-    #   预训练权重对于99%的情况都必须要用，不用的话主干部分的权值太过随机，特征提取效果不明显，网络训练的结果也不会好
+    # See the README for the weights file, which can be downloaded via the netbook. Pre-training weights of the model are common to different datasets because the features are common.
+    # Pre-training weights of the model The more important part is the weights part of the backbone feature extraction network, which is used for feature extraction.
+    # Pre-training weights must be used in 99% of the cases, if not, the weights of the backbone part are too random, the feature extraction is not effective, and the results of the network training will not be good.
     #
-    #   如果训练过程中存在中断训练的操作，可以将model_path设置成logs文件夹下的权值文件，将已经训练了一部分的权值再次载入。
-    #   同时修改下方的 冻结阶段 或者 解冻阶段 的参数，来保证模型epoch的连续性。
+    # If there is an interruption in the training process, you can set the model_path to the weights file in the logs folder, and reload the weights that have already been partially trained.
+    # # Also modify the parameters of the freeze phase or unfreeze phase below to ensure the continuity of the model epoch. # # If there is an interruption in the training process, you can set model_path to the weights file in the logs folder.
     #   
-    #   当model_path = ''的时候不加载整个模型的权值。
-    #
-    #   此处使用的是整个模型的权重，因此是在train.py进行加载的。
-    #   如果想要让模型从0开始训练，则设置model_path = ''，下面的Freeze_Train = Fasle，此时从0开始训练，且没有冻结主干的过程。
+    # Do not load the entire model weights when model_path = ''.
+    # # When model_path = '', the weights of the whole model are not loaded.
+    # The weights for the whole model are used here, so they are loaded in train.py.
+    # If you want the model to start training from 0, set model_path = '' and Freeze_Train = Fasle below, at this point training starts from 0 and there is no process of freezing the backbone.
     #   
-    #   一般来讲，网络从0开始的训练效果会很差，因为权值太过随机，特征提取效果不明显，因此非常、非常、非常不建议大家从0开始训练！
-    #   从0开始训练有两个方案：
-    #   1、得益于Mosaic数据增强方法强大的数据增强能力，将UnFreeze_Epoch设置的较大（300及以上）、batch较大（16及以上）、数据较多（万以上）的情况下，
-    #      可以设置mosaic=True，直接随机初始化参数开始训练，但得到的效果仍然不如有预训练的情况。（像COCO这样的大数据集可以这样做）
-    #   2、了解imagenet数据集，首先训练分类模型，获得网络的主干部分权值，分类模型的 主干部分 和该模型通用，基于此进行训练。
+    # In general, the network will train poorly from 0 because the weights are too random and feature extraction is not effective, so it is very, very, very much not recommended that you start training from 0. # If you want to train from 0, you have to set the model_path = '''!
+    # There are two options for training from 0:
+    # 1, thanks to the powerful data enhancement capability of Mosaic data enhancement method, set UnFreeze_Epoch larger (300 and above), batch larger (16 and above), more data (more than 10,000) in the case of.
+    # You can set mosaic=True and directly randomly initialize the parameters to start training, but the results obtained are still not as good as the case with pre-training. (Large datasets like COCO can do this)
+    # 2, understand the imagenet dataset, first train the classification model, get the weights of the backbone part of the network, the backbone part of the classification model is common to this model, based on this training.
     #----------------------------------------------------------------------------------------------------------------------------#
     model_path      = 'model_data/yolov8_s.pth'
-    #------------------------------------------------------#
-    #   input_shape     输入的shape大小，一定要是32的倍数
-    #------------------------------------------------------#
     input_shape     = [640, 640]
     #------------------------------------------------------#
-    #   phi             所使用到的yolov8的版本
-    #                   n : 对应yolov8_n
-    #                   s : 对应yolov8_s
-    #                   m : 对应yolov8_m
-    #                   l : 对应yolov8_l
-    #                   x : 对应yolov8_x
+    # phi The version of yolov8 used by phi.
+    # n : corresponds to yolov8_n
+    # s : corresponds to yolov8_s
+    # m : corresponds to yolov8_m
+    # l : corresponds to yolov8_l
+    # x : corresponds to yolov8_x
     #------------------------------------------------------#
     phi             = 's'
     #----------------------------------------------------------------------------------------------------------------------------#
-    #   pretrained      是否使用主干网络的预训练权重，此处使用的是主干的权重，因此是在模型构建的时候进行加载的。
-    #                   如果设置了model_path，则主干的权值无需加载，pretrained的值无意义。
-    #                   如果不设置model_path，pretrained = True，此时仅加载主干开始训练。
-    #                   如果不设置model_path，pretrained = False，Freeze_Train = Fasle，此时从0开始训练，且没有冻结主干的过程。
-    #----------------------------------------------------------------------------------------------------------------------------#
+    # pretrained Whether to use the pretrained weights of the backbone network, here the weights of the backbone are used, so they are loaded during model construction.
+    # If model_path is set, the weights of the backbone do not need to be loaded, pretrained values are meaningless.
+    # If model_path is not set, pretrained = True, at which point only the trunk is loaded to start training.
+    # If model_path is not set, pretrained = False, Freeze_Train = Fasle, at this point training starts from 0 and there is no process of freezing the trunk.
+    # ----------------------------------------------------------------------------------------------------------------------------#
     pretrained      = False
     #------------------------------------------------------------------#
     #   mosaic              马赛克数据增强。
